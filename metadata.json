@@ -1,0 +1,7 @@
+{
+  "name": "Pitch.Ads - AI Coach",
+  "description": "Master your agency elevator pitch. AI-driven practice for creatives, strategists, and account execs.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

@@ -1,0 +1,388 @@
+import React, { useState, useEffect } from 'react';
+import { PITCH_PROMPTS, STORAGE_KEY, RECEIVER_PERSONAS } from './constants';
+import { PitchPrompt, AppState, PitchSession, DifficultyLevel } from './types';
+import { Recorder } from './components/Recorder';
+import { Results } from './components/Results';
+import { HistoryDashboard } from './components/HistoryDashboard';
+import { analyzePitch, generatePracticePrompts } from './services/geminiService';
+import { Mic, BarChart2, Sparkles, Loader2, ArrowLeft, Plus, RefreshCw, Zap, Heart, Shield, ShieldAlert, Timer } from 'lucide-react';
+
+const App: React.FC = () => {
+  const [appState, setAppState] = useState<AppState>(AppState.IDLE);
+  const [selectedPrompt, setSelectedPrompt] = useState<PitchPrompt | null>(null);
+  const [sessions, setSessions] = useState<PitchSession[]>([]);
+  const [currentSession, setCurrentSession] = useState<PitchSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Prompt Management
+  const [displayedPrompts, setDisplayedPrompts] = useState<PitchPrompt[]>(PITCH_PROMPTS);
+  const [customPromptText, setCustomPromptText] = useState("");
+  const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
+
+  // Game Settings
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('Easy');
+  const [customDurationMinutes, setCustomDurationMinutes] = useState<string>("1"); // Store as string for input handling
+
+  // Load history on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setSessions(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse history", e);
+      }
+    }
+  }, []);
+
+  // Save history on change
+  useEffect(() => {
+    if (sessions.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    }
+  }, [sessions]);
+
+  const handleSelectPrompt = (prompt: PitchPrompt) => {
+    setSelectedPrompt(prompt);
+    // Convert default seconds to minutes for the UI input
+    setCustomDurationMinutes((prompt.durationTarget / 60).toString());
+    setAppState(AppState.RECORDING);
+    setError(null);
+  };
+
+  const handleAddCustomPrompt = () => {
+    if (!customPromptText.trim()) return;
+    const newPrompt: PitchPrompt = {
+      id: `custom-${Date.now()}`,
+      text: customPromptText,
+      category: 'General',
+      durationTarget: 60 // Default for custom
+    };
+    setDisplayedPrompts([newPrompt, ...displayedPrompts]);
+    setCustomPromptText("");
+    handleSelectPrompt(newPrompt);
+  };
+
+  const handleGenerateFreshPrompts = async () => {
+    setIsGeneratingPrompts(true);
+    try {
+      // Learn from user history
+      const pastPracticeTexts = sessions.map(s => s.prompt.text);
+      const newPrompts = await generatePracticePrompts(pastPracticeTexts);
+      if (newPrompts.length > 0) {
+        setDisplayedPrompts(prev => [...newPrompts, ...prev]);
+      }
+    } catch (e) {
+      console.error("Failed to generate prompts", e);
+      setError("Could not generate new prompts. Try again.");
+    } finally {
+      setIsGeneratingPrompts(false);
+    }
+  };
+
+  const handleRecordingComplete = async (audioBlob: Blob, duration: number) => {
+    if (!selectedPrompt) return;
+
+    setAppState(AppState.PROCESSING);
+    setError(null);
+
+    const targetSeconds = parseFloat(customDurationMinutes) * 60;
+
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      reader.onloadend = async () => {
+        const base64Audio = (reader.result as string).split(',')[1];
+        
+        try {
+          const analysis = await analyzePitch(base64Audio, selectedPrompt.text, targetSeconds, difficulty);
+          
+          // Calculate XP
+          const multiplier = RECEIVER_PERSONAS[difficulty].multiplier;
+          const xp = Math.round(analysis.scores.overall * multiplier);
+
+          const newSession: PitchSession = {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            prompt: selectedPrompt,
+            audioUrl: URL.createObjectURL(audioBlob),
+            transcription: analysis.transcription,
+            scores: analysis.scores,
+            feedback: analysis.feedback,
+            duration: duration,
+            fillerWordCount: analysis.fillerWordCount,
+            difficulty: difficulty,
+            xpEarned: xp
+          };
+
+          setSessions(prev => [newSession, ...prev]);
+          setCurrentSession(newSession);
+          setAppState(AppState.RESULT);
+        } catch (err: any) {
+          console.error(err);
+          setError("Failed to analyze pitch. " + (err.message || ""));
+          setAppState(AppState.RECORDING);
+        }
+      };
+    } catch (err) {
+      console.error(err);
+      setError("Error processing audio file.");
+      setAppState(AppState.RECORDING);
+    }
+  };
+
+  const handleViewSession = (session: PitchSession) => {
+    setCurrentSession(session);
+    setAppState(AppState.RESULT);
+  };
+
+  const renderContent = () => {
+    switch (appState) {
+      case AppState.IDLE:
+      case AppState.HISTORY:
+        return (
+          <div className="max-w-5xl mx-auto w-full">
+            <div className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wider mb-4">
+                <Zap size={12} fill="currentColor" />
+                Ads & Creative Edition
+              </div>
+              <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-4">
+                Pitch Perfect. <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600">Win the Room.</span>
+              </h1>
+              <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+                The AI coach for Ad Execs, Strategists, and Creatives. Practice your campaign pitch, client intro, or internal sell.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
+               {/* Practice Arena */}
+               <div className="bg-white p-6 rounded-2xl shadow-xl shadow-indigo-100/50 border border-indigo-50 flex flex-col items-start transition-transform duration-300">
+                  <div className="w-full flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600">
+                        <Sparkles size={20} />
+                      </div>
+                      <h2 className="text-xl font-bold text-slate-800">Practice Arena</h2>
+                    </div>
+                    <button 
+                      onClick={handleGenerateFreshPrompts}
+                      disabled={isGeneratingPrompts}
+                      className="text-xs flex items-center gap-1.5 font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 px-3 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+                    >
+                      {isGeneratingPrompts ? <Loader2 size={14} className="animate-spin"/> : <RefreshCw size={14}/>}
+                      Refresh Bank
+                    </button>
+                  </div>
+                  
+                  {/* Custom Input */}
+                  <div className="w-full mb-6 flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Sell a risky idea to Nike..."
+                      value={customPromptText}
+                      onChange={(e) => setCustomPromptText(e.target.value)}
+                      className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 shadow-sm"
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddCustomPrompt()}
+                    />
+                    <button 
+                      onClick={handleAddCustomPrompt}
+                      className="bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
+                    >
+                      <Plus size={20} />
+                    </button>
+                  </div>
+
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 w-full">Current Prompt Bank ({displayedPrompts.length})</h3>
+                  <div className="w-full space-y-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
+                    {displayedPrompts.map(prompt => (
+                      <button 
+                        key={prompt.id}
+                        onClick={() => handleSelectPrompt(prompt)}
+                        className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:shadow-md hover:bg-white transition-all text-left group bg-slate-50/50"
+                      >
+                         <span className="font-medium text-slate-700 group-hover:text-indigo-700 text-sm line-clamp-2 pr-4">{prompt.text}</span>
+                         <span className="shrink-0 text-xs font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded group-hover:border-indigo-200">{prompt.durationTarget}s</span>
+                      </button>
+                    ))}
+                  </div>
+               </div>
+
+               {/* Dashboard Stats */}
+               <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                     <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                       <BarChart2 className="text-slate-400"/> Performance Stats
+                     </h2>
+                  </div>
+                  {sessions.length > 0 ? (
+                    <HistoryDashboard sessions={sessions} onSelectSession={handleViewSession} />
+                  ) : (
+                    <div className="h-64 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                       <BarChart2 size={48} className="mb-4 opacity-20"/>
+                       <p>No pitches yet. Start practicing!</p>
+                    </div>
+                  )}
+               </div>
+            </div>
+          </div>
+        );
+
+      case AppState.RECORDING:
+        return (
+          <div className="max-w-3xl mx-auto w-full pt-8 px-4">
+            <button 
+              onClick={() => setAppState(AppState.IDLE)} 
+              className="flex items-center text-slate-500 hover:text-slate-800 mb-6 transition-colors"
+            >
+               <ArrowLeft size={20} className="mr-1"/> Back
+            </button>
+            
+            <div className="text-center mb-8">
+               <h2 className="text-2xl font-bold text-slate-800 mb-2 leading-tight">"{selectedPrompt?.text}"</h2>
+            </div>
+            
+            {/* Game Setup Panel */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+               
+               {/* Time Control */}
+               <div>
+                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
+                    <Timer size={14}/> Target Time (Minutes)
+                 </label>
+                 <div className="flex items-center gap-4">
+                    <input 
+                      type="number" 
+                      min="0.1"
+                      step="0.1"
+                      value={customDurationMinutes}
+                      onChange={(e) => setCustomDurationMinutes(e.target.value)}
+                      className="w-24 text-center p-2 border border-slate-200 rounded-lg font-mono text-lg font-bold text-slate-700 focus:border-indigo-500 focus:outline-none"
+                    />
+                    <span className="text-sm text-slate-500">= {Math.round(parseFloat(customDurationMinutes || '0') * 60)} seconds</span>
+                 </div>
+               </div>
+
+               {/* Difficulty Control */}
+               <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
+                    <Shield size={14}/> Receiver Mode
+                  </label>
+                  <div className="flex gap-2">
+                     {(Object.keys(RECEIVER_PERSONAS) as DifficultyLevel[]).map((level) => {
+                        const persona = RECEIVER_PERSONAS[level];
+                        const isSelected = difficulty === level;
+                        const Icon = level === 'Easy' ? Heart : level === 'Medium' ? Shield : ShieldAlert;
+                        
+                        return (
+                          <button
+                            key={level}
+                            onClick={() => setDifficulty(level)}
+                            className={`flex-1 flex flex-col items-center justify-center p-2 rounded-lg border transition-all ${
+                               isSelected 
+                               ? 'bg-indigo-50 border-indigo-500 text-indigo-700' 
+                               : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+                            }`}
+                          >
+                             <Icon size={20} className={`mb-1 ${isSelected ? 'fill-current' : ''}`}/>
+                             <span className="text-xs font-bold">{level}</span>
+                             <span className="text-[10px] opacity-70">{persona.multiplier}x XP</span>
+                          </button>
+                        );
+                     })}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2 italic">
+                    "{RECEIVER_PERSONAS[difficulty].description}"
+                  </p>
+               </div>
+            </div>
+
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 text-red-600 border border-red-200 rounded-lg text-center text-sm">
+                {error}
+              </div>
+            )}
+
+            <Recorder 
+              onRecordingComplete={handleRecordingComplete} 
+              targetDuration={parseFloat(customDurationMinutes) * 60}
+            />
+          </div>
+        );
+
+      case AppState.PROCESSING:
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <Loader2 size={64} className="text-indigo-500 animate-spin mb-8" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">The Judges are Deliberating...</h2>
+            <p className="text-slate-500 text-center max-w-md">
+              Analyzing tone, pace, filler words, and content against the <strong>{difficulty}</strong> persona.
+            </p>
+          </div>
+        );
+
+      case AppState.RESULT:
+        if (!currentSession) return null;
+        return (
+          <div className="pt-8">
+             <button 
+              onClick={() => setAppState(AppState.IDLE)} 
+              className="flex items-center text-slate-500 hover:text-slate-800 mb-6 transition-colors max-w-3xl mx-auto w-full px-4"
+            >
+               <ArrowLeft size={20} className="mr-1"/> Back to Dashboard
+            </button>
+            <Results 
+              session={currentSession} 
+              onRetry={() => {
+                if (currentSession.prompt) handleSelectPrompt(currentSession.prompt);
+                else setAppState(AppState.IDLE);
+              }}
+              onHome={() => setAppState(AppState.IDLE)}
+            />
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div 
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => setAppState(AppState.IDLE)}
+          >
+            <div className="bg-indigo-600 text-white p-1.5 rounded-lg">
+              <Mic size={20} fill="currentColor" />
+            </div>
+            <span className="font-bold text-lg text-slate-900 tracking-tight">Pitch.Ads</span>
+          </div>
+          
+          {process.env.API_KEY ? (
+             <div className="flex items-center gap-2 text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100">
+               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+               AI Connected
+             </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
+               <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+               No API Key
+             </div>
+          )}
+        </div>
+      </header>
+
+      <main className="flex-grow p-4 md:p-8">
+        {renderContent()}
+      </main>
+
+      <footer className="bg-white border-t border-slate-200 mt-auto py-8">
+        <div className="max-w-6xl mx-auto px-4 text-center text-slate-400 text-sm">
+          <p>&copy; {new Date().getFullYear()} Pitch.Ads. Powered by Gemini 3 Pro.</p>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default App;
