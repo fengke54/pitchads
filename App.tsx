@@ -496,7 +496,7 @@ const App: React.FC = () => {
             <div className="bg-indigo-600 text-white p-1.5 rounded-lg">
               <Mic size={20} fill="currentColor" />
             </div>
-            <span className="font-bold text-lg text-slate-900 tracking-tight">Pitch.Ads</span>
+            <span className="font-bold text-lg text-slate-900 tracking-tight">Pitch Pro</span>
           </div>
           
           {process.env.API_KEY ? (
@@ -519,7 +519,7 @@ const App: React.FC = () => {
 
       <footer className="bg-white border-t border-slate-200 mt-auto py-8">
         <div className="max-w-6xl mx-auto px-4 text-center text-slate-400 text-sm">
-          <p>&copy; {new Date().getFullYear()} Pitch.Ads. Powered by Gemini 3 Pro.</p>
+          <p>&copy; {new Date().getFullYear()} Pitch Pro. Powered by Gemini 3 Pro.</p>
         </div>
       </footer>
     </div>
