@@ -21,14 +21,14 @@ export const generateObjection = async (
   const systemInstruction = `
     Role: ${persona.context}
     
-    Task: deeply listen to the user's audio pitch and provide a relevant, specific objection or follow-up question.
-    User Prompt was: "${promptText}"
+    Task: Deeply listen to the user's audio pitch. You must output an objection that references specific content from the speech.
     
-    Requirements:
-    - Your response must be DIRECTLY based on specific points the user made in their audio.
-    - Quote or reference something they said to prove you listened.
-    - Do NOT act as an AI. Act exactly as the persona defined.
-    - Keep it under 2 sentences.
+    CRITICAL INSTRUCTION:
+    - You MUST reference a specific phrase, claim, or number the user mentioned.
+    - Do NOT give generic advice like "I'm not convinced".
+    - If the user said "we increase sales by 50%", you ask "How exactly do you prove that 50% increase?".
+    - If the user was vague, attack the vagueness specifically by quoting them.
+    - Keep it under 2 sentences. Spoken style.
     
     Persona Specifics:
     - If "The Ally": Ask a helpful clarifying question to help them shine.
@@ -37,29 +37,33 @@ export const generateObjection = async (
     - If "The Data Skeptic": Ask for proof/numbers related to a claim they just made.
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview",
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            mimeType: "audio/wav", 
-            data: audioBase64,
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "audio/webm", 
+              data: audioBase64,
+            },
           },
-        },
-        {
-          text: "Here is my pitch. How do you respond?",
-        },
-      ],
-    },
-    config: {
-      systemInstruction: systemInstruction,
-      maxOutputTokens: 150,
-      thinkingConfig: { thinkingBudget: 1024 } // Allow some reasoning for the persona
-    },
-  });
+          {
+            text: `The user was answering this prompt: "${promptText}". Listen to their response and give me your objection.`,
+          },
+        ],
+      },
+      config: {
+        systemInstruction: systemInstruction,
+        maxOutputTokens: 150,
+      },
+    });
 
-  return response.text || "I'm not convinced. Can you explain that again?";
+    return response.text || "I couldn't hear the details clearly. Could you give me a specific example of what you mean?";
+  } catch (e) {
+    console.error("Objection generation error", e);
+    return "I'm a bit skeptical. Can you break that down with more specific numbers?";
+  }
 };
 
 export const analyzePitch = async (
@@ -100,7 +104,7 @@ export const analyzePitch = async (
         { text: "User Pitch:" },
         {
           inlineData: {
-            mimeType: "audio/wav", 
+            mimeType: "audio/webm", 
             data: pitchAudioBase64,
           },
         },
@@ -108,7 +112,7 @@ export const analyzePitch = async (
         { text: "User Rebuttal:" },
         {
           inlineData: {
-            mimeType: "audio/wav", 
+            mimeType: "audio/webm", 
             data: responseAudioBase64,
           },
         },

@@ -249,7 +249,7 @@ const App: React.FC = () => {
                       placeholder="e.g. Sell a risky idea to Nike..."
                       value={customPromptText}
                       onChange={(e) => setCustomPromptText(e.target.value)}
-                      className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 shadow-sm"
+                      className="flex-1 px-4 py-3 border-2 border-slate-900 bg-slate-900 text-white placeholder-slate-500 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 shadow-sm font-medium"
                       onKeyDown={(e) => e.key === 'Enter' && handleAddCustomPrompt()}
                     />
                     <button 
@@ -316,7 +316,7 @@ const App: React.FC = () => {
                <div className="flex flex-col md:flex-row gap-6">
                   {/* Time Control */}
                   <div className="min-w-[150px]">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 block flex items-center gap-2">
                         <Timer size={14}/> Target Minutes
                     </label>
                     <div className="flex items-center gap-4">
@@ -326,7 +326,7 @@ const App: React.FC = () => {
                         step="0.1"
                         value={customDurationMinutes}
                         onChange={(e) => setCustomDurationMinutes(e.target.value)}
-                        className="w-full text-center p-3 border border-slate-300 rounded-lg font-mono text-xl font-bold text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                        className="w-full text-center p-3 border-2 border-slate-900 bg-slate-900 text-white rounded-lg font-mono text-xl font-bold focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 placeholder-slate-500"
                         />
                     </div>
                   </div>
