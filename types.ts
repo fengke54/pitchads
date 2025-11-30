@@ -1,4 +1,4 @@
-export type DifficultyLevel = 'Easy' | 'Medium' | 'Hard';
+export type DifficultyLevel = 'Ally' | 'Pragmatist' | 'Burned' | 'Skeptic' | 'Visionary' | 'Challenger';
 
 export interface PitchPrompt {
   id: string;
@@ -27,20 +27,25 @@ export interface PitchSession {
   id: string;
   timestamp: number;
   prompt: PitchPrompt;
-  audioUrl?: string;
+  audioUrl?: string; // Stores the first audio (or combined if we merge)
+  responseAudioUrl?: string; // Stores the second audio
+  objection: string; // The objection raised by the AI
   transcription: string;
   scores: EvaluationScores;
   feedback: EvaluationFeedback;
   duration: number; // actual duration in seconds
   fillerWordCount: number;
-  difficulty: DifficultyLevel; // New: Game difficulty
-  xpEarned: number; // New: Gamified points
+  difficulty: DifficultyLevel;
+  xpEarned: number;
 }
 
 export enum AppState {
   IDLE = 'IDLE',
-  RECORDING = 'RECORDING',
-  PROCESSING = 'PROCESSING',
+  RECORDING_PITCH = 'RECORDING_PITCH',
+  GENERATING_OBJECTION = 'GENERATING_OBJECTION',
+  VIEWING_OBJECTION = 'VIEWING_OBJECTION',
+  RECORDING_RESPONSE = 'RECORDING_RESPONSE',
+  PROCESSING_FINAL = 'PROCESSING_FINAL',
   RESULT = 'RESULT',
   HISTORY = 'HISTORY',
 }

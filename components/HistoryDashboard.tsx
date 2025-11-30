@@ -1,7 +1,7 @@
 import React from 'react';
 import { PitchSession } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Calendar, Clock, Award, Zap, ShieldAlert, Heart, Shield } from 'lucide-react';
+import { Calendar, Clock, Award, Zap, ShieldAlert, Heart, Shield, User, Brain, TrendingUp } from 'lucide-react';
 
 interface HistoryDashboardProps {
   sessions: PitchSession[];
@@ -22,6 +22,18 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({ sessions, on
   const totalXP = sessions.reduce((acc, curr) => acc + (curr.xpEarned || 0), 0);
   const averageScore = Math.round(sessions.reduce((acc, curr) => acc + curr.scores.overall, 0) / sessions.length);
   const bestScore = Math.max(...sessions.map(s => s.scores.overall));
+
+  const getDifficultyIcon = (level: string) => {
+    switch(level) {
+      case 'Ally': return <Heart size={10} className="text-pink-500"/>;
+      case 'Pragmatist': return <User size={10} className="text-blue-500"/>;
+      case 'Burned': return <Shield size={10} className="text-amber-500"/>;
+      case 'Skeptic': return <TrendingUp size={10} className="text-indigo-500"/>;
+      case 'Visionary': return <Brain size={10} className="text-purple-500"/>;
+      case 'Challenger': return <ShieldAlert size={10} className="text-red-500"/>;
+      default: return <Heart size={10} className="text-slate-400"/>;
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -97,10 +109,8 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({ sessions, on
                       <span className="flex items-center gap-1"><Calendar size={12}/> {new Date(session.timestamp).toLocaleDateString()}</span>
                       <span className="flex items-center gap-1"><Clock size={12}/> {session.duration}s</span>
                       <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-100 border border-slate-200">
-                        {session.difficulty === 'Easy' && <Heart size={10} className="text-pink-500"/>}
-                        {session.difficulty === 'Medium' && <Shield size={10} className="text-blue-500"/>}
-                        {session.difficulty === 'Hard' && <ShieldAlert size={10} className="text-red-500"/>}
-                        {session.difficulty || 'Easy'} Mode
+                        {getDifficultyIcon(session.difficulty || 'Ally')}
+                        {session.difficulty || 'Ally'} Mode
                       </span>
                     </div>
                   </div>

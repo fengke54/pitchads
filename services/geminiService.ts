@@ -11,8 +11,61 @@ interface GeminiResponse {
   fillerWordCount: number;
 }
 
-export const analyzePitch = async (
+export const generateObjection = async (
   audioBase64: string,
+  promptText: string,
+  difficulty: DifficultyLevel
+): Promise<string> => {
+  const persona = RECEIVER_PERSONAS[difficulty];
+
+  const systemInstruction = `
+    Role: ${persona.context}
+    
+    Task: deeply listen to the user's audio pitch and provide a relevant, specific objection or follow-up question.
+    User Prompt was: "${promptText}"
+    
+    Requirements:
+    - Your response must be DIRECTLY based on specific points the user made in their audio.
+    - Quote or reference something they said to prove you listened.
+    - Do NOT act as an AI. Act exactly as the persona defined.
+    - Keep it under 2 sentences.
+    
+    Persona Specifics:
+    - If "The Ally": Ask a helpful clarifying question to help them shine.
+    - If "The Burned Client": Express doubt based on past failure. Pick on a vague promise they made.
+    - If "The Challenger": Be blunt. If they used buzzwords, call them out.
+    - If "The Data Skeptic": Ask for proof/numbers related to a claim they just made.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-pro-preview",
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            mimeType: "audio/wav", 
+            data: audioBase64,
+          },
+        },
+        {
+          text: "Here is my pitch. How do you respond?",
+        },
+      ],
+    },
+    config: {
+      systemInstruction: systemInstruction,
+      maxOutputTokens: 150,
+      thinkingConfig: { thinkingBudget: 1024 } // Allow some reasoning for the persona
+    },
+  });
+
+  return response.text || "I'm not convinced. Can you explain that again?";
+};
+
+export const analyzePitch = async (
+  pitchAudioBase64: string,
+  objectionText: string,
+  responseAudioBase64: string,
   promptText: string,
   targetDuration: number,
   difficulty: DifficultyLevel
@@ -23,34 +76,44 @@ export const analyzePitch = async (
   const systemInstruction = `
     Role: ${persona.context}
     
-    Task: Analyze an audio recording of a user practicing a pitch for the Ads/Marketing industry.
-    The user was responding to: "${promptText}".
-    The target duration was ${targetDuration} seconds.
+    Task: Analyze a 2-turn conversation.
+    1. User Pitch (Audio 1): Response to "${promptText}".
+    2. Your Objection: "${objectionText}".
+    3. User Rebuttal (Audio 2): Response to the objection.
 
     Your Persona Behavior:
-    - If Easy: Be kind, give higher scores for effort, focus on basics.
-    - If Medium: Be balanced, standard corporate evaluation.
-    - If Hard: Be strict. Penalize heavily for filler words, lack of clarity, or going over time. It should be hard to get a score above 80.
+    - If Ally: Be kind, give higher scores for effort.
+    - If Burned Client: Did they restore trust?
+    - If Challenger: Did they stand their ground?
 
     Requirements:
-    1. Transcribe the audio verbatim.
-    2. Count filler words (um, uh, like, you know).
+    1. Transcribe the FULL conversation (Pitch + Objection + Rebuttal).
+    2. Count filler words in user speech.
     3. Evaluate 0-100 on: Structure, Clarity, Brevity, Delivery.
-    4. Provide feedback matching your persona (Warm vs Cold tone).
+    4. Provide feedback matching your persona.
   `;
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: {
       parts: [
+        { text: "User Pitch:" },
         {
           inlineData: {
             mimeType: "audio/wav", 
-            data: audioBase64,
+            data: pitchAudioBase64,
+          },
+        },
+        { text: `System Objection: ${objectionText}` },
+        { text: "User Rebuttal:" },
+        {
+          inlineData: {
+            mimeType: "audio/wav", 
+            data: responseAudioBase64,
           },
         },
         {
-          text: "Analyze this pitch.",
+          text: "Analyze the full interaction.",
         },
       ],
     },
@@ -102,15 +165,17 @@ export const generatePracticePrompts = async (
 ): Promise<PitchPrompt[]> => {
   
   const systemInstruction = `
-    You are an endless engine of Advertising & Sales training scenarios.
+    You are an endless engine of strictly professional Business, Advertising & Sales scenarios.
     Generate 10 NEW, distinct, challenging pitch prompts for a user in the: ${userContext}.
     
     The user has already practiced these: ${JSON.stringify(pastPrompts.slice(-20))}. 
     DO NOT repeat similar topics. 
     
-    Vary the duration targets (30s, 60s, 120s, 300s).
-    Categories must be one of: 'General', 'Sales', 'Interview', 'Startup'.
-    Ensure high variety: Crisis management, Award acceptance, Pitching to procurement, Networking at Cannes, etc.
+    CRITICAL RULES:
+    1. STRICTLY BUSINESS CONTEXT. No "tell me about your hobbies", no "favorite color", no casual icebreakers.
+    2. Focus on: Client Presentations, Stakeholder Management, Salary Negotiations, Pitching Concepts, Handling Crises.
+    3. Vary the duration targets (30s, 60s, 120s, 300s).
+    4. Categories must be one of: 'General', 'Sales', 'Interview', 'Startup'.
   `;
 
   const response = await ai.models.generateContent({

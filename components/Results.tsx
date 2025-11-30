@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { PitchSession } from '../types';
-import { Play, Pause, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Zap, Shield, Heart, ShieldAlert } from 'lucide-react';
+import { Play, Pause, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Zap, Shield, Heart, ShieldAlert, MessageCircle, User, Brain, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import { RECEIVER_PERSONAS } from '../constants';
 
 interface ResultsProps {
   session: PitchSession;
@@ -39,10 +40,15 @@ export const Results: React.FC<ResultsProps> = ({ session, onRetry, onHome }) =>
   };
 
   const DifficultyIcon = {
-    Easy: Heart,
-    Medium: Shield,
-    Hard: ShieldAlert
-  }[session.difficulty || 'Easy'];
+    Ally: Heart,
+    Pragmatist: User,
+    Burned: Shield,
+    Skeptic: TrendingUp,
+    Visionary: Brain,
+    Challenger: ShieldAlert
+  }[session.difficulty || 'Ally'];
+
+  const personaName = RECEIVER_PERSONAS[session.difficulty]?.name || "The Ally";
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6 pb-20">
@@ -50,15 +56,12 @@ export const Results: React.FC<ResultsProps> = ({ session, onRetry, onHome }) =>
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="text-center md:text-left">
           <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
-             <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider border flex items-center gap-1
-                ${session.difficulty === 'Hard' ? 'bg-red-50 text-red-700 border-red-200' : 
-                  session.difficulty === 'Medium' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                  'bg-pink-50 text-pink-700 border-pink-200'}`}>
-                <DifficultyIcon size={12}/> {session.difficulty || 'Easy'} Mode
+             <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider border flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-200`}>
+                <DifficultyIcon size={12}/> {personaName}
              </span>
           </div>
-          <h2 className="text-2xl font-bold text-slate-800">Mission Report</h2>
-          <p className="text-slate-500">Analysis from {session.difficulty === 'Easy' ? 'your mentor' : session.difficulty === 'Hard' ? 'the skeptic' : 'the client'}.</p>
+          <h2 className="text-2xl font-bold text-slate-800">Presentation Assessment</h2>
+          <p className="text-slate-500">Analysis from {personaName}.</p>
         </div>
         <div className="flex items-center gap-6">
           <div className="flex flex-col items-center">
@@ -128,17 +131,34 @@ export const Results: React.FC<ResultsProps> = ({ session, onRetry, onHome }) =>
         </div>
       </div>
 
+      {/* Objection Highlight */}
+      <div className="bg-indigo-50 rounded-2xl p-6 border border-indigo-100">
+         <div className="flex gap-4">
+            <div className="shrink-0 bg-white p-2 rounded-full h-fit border border-indigo-200 text-indigo-600">
+              <MessageCircle size={24} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wider mb-1">
+                The Objection You Faced
+              </h3>
+              <p className="text-indigo-800 font-medium text-lg leading-snug">
+                "{session.objection}"
+              </p>
+            </div>
+         </div>
+      </div>
+
       {/* Transcription & Audio */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
          <div className="flex items-center justify-between mb-4">
-             <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Transcription & Audio</h3>
+             <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Full Session Log</h3>
              {session.audioUrl && (
                <button 
                 onClick={togglePlayback}
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors text-sm font-medium"
                >
                  {isPlaying ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}
-                 {isPlaying ? 'Pause Recording' : 'Play Recording'}
+                 {isPlaying ? 'Pause Pitch' : 'Play Pitch'}
                </button>
              )}
          </div>
@@ -151,7 +171,7 @@ export const Results: React.FC<ResultsProps> = ({ session, onRetry, onHome }) =>
          />
 
          <div className="relative">
-            <div className={`text-slate-700 leading-relaxed ${!showTranscription ? 'line-clamp-3' : ''}`}>
+            <div className={`text-slate-700 leading-relaxed whitespace-pre-wrap ${!showTranscription ? 'line-clamp-6' : ''}`}>
               {session.transcription}
             </div>
             <button 
@@ -161,7 +181,7 @@ export const Results: React.FC<ResultsProps> = ({ session, onRetry, onHome }) =>
               {showTranscription ? (
                 <>Show Less <ChevronUp size={16}/></>
               ) : (
-                <>Show Full Transcription <ChevronDown size={16}/></>
+                <>Show Full Conversation <ChevronDown size={16}/></>
               )}
             </button>
          </div>

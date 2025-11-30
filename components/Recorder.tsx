@@ -4,9 +4,10 @@ import { Mic, Square, Volume2 } from 'lucide-react';
 interface RecorderProps {
   onRecordingComplete: (audioBlob: Blob, duration: number) => void;
   targetDuration: number;
+  label?: string;
 }
 
-export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete, targetDuration }) => {
+export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete, targetDuration, label = "Tap to start recording" }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -170,7 +171,7 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete, targetD
       )}
 
       <p className="mt-6 text-slate-500 text-sm font-medium">
-        {isRecording ? (isOverTime ? "Wrap it up!" : "Listening...") : "Tap to start recording"}
+        {isRecording ? (isOverTime ? "Wrap it up!" : "Listening...") : label}
       </p>
     </div>
   );

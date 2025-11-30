@@ -4,8 +4,8 @@ import { PitchPrompt, AppState, PitchSession, DifficultyLevel } from './types';
 import { Recorder } from './components/Recorder';
 import { Results } from './components/Results';
 import { HistoryDashboard } from './components/HistoryDashboard';
-import { analyzePitch, generatePracticePrompts } from './services/geminiService';
-import { Mic, BarChart2, Sparkles, Loader2, ArrowLeft, Plus, RefreshCw, Zap, Heart, Shield, ShieldAlert, Timer } from 'lucide-react';
+import { analyzePitch, generatePracticePrompts, generateObjection } from './services/geminiService';
+import { Mic, BarChart2, Sparkles, Loader2, ArrowLeft, Plus, RefreshCw, Zap, Heart, Shield, ShieldAlert, Timer, MessageSquare, User, Brain, TrendingUp } from 'lucide-react';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -20,8 +20,13 @@ const App: React.FC = () => {
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
 
   // Game Settings
-  const [difficulty, setDifficulty] = useState<DifficultyLevel>('Easy');
-  const [customDurationMinutes, setCustomDurationMinutes] = useState<string>("1"); // Store as string for input handling
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('Ally');
+  const [customDurationMinutes, setCustomDurationMinutes] = useState<string>("1"); 
+
+  // Conversation State
+  const [pitchAudioBlob, setPitchAudioBlob] = useState<Blob | null>(null);
+  const [pitchDuration, setPitchDuration] = useState(0);
+  const [objectionText, setObjectionText] = useState<string>("");
 
   // Load history on mount
   useEffect(() => {
@@ -46,8 +51,10 @@ const App: React.FC = () => {
     setSelectedPrompt(prompt);
     // Convert default seconds to minutes for the UI input
     setCustomDurationMinutes((prompt.durationTarget / 60).toString());
-    setAppState(AppState.RECORDING);
+    setAppState(AppState.RECORDING_PITCH);
     setError(null);
+    setPitchAudioBlob(null);
+    setObjectionText("");
   };
 
   const handleAddCustomPrompt = () => {
@@ -80,60 +87,120 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRecordingComplete = async (audioBlob: Blob, duration: number) => {
+  // Step 1 Complete: Pitch Recorded
+  const handlePitchComplete = async (audioBlob: Blob, duration: number) => {
     if (!selectedPrompt) return;
-
-    setAppState(AppState.PROCESSING);
+    
+    setPitchAudioBlob(audioBlob);
+    setPitchDuration(duration);
+    setAppState(AppState.GENERATING_OBJECTION);
     setError(null);
 
+    // Convert blob to base64 for Gemini
+    try {
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+           const base64Audio = (reader.result as string).split(',')[1];
+           try {
+               const objection = await generateObjection(base64Audio, selectedPrompt.text, difficulty);
+               setObjectionText(objection);
+               setAppState(AppState.VIEWING_OBJECTION);
+           } catch (err: any) {
+               console.error(err);
+               setError("Failed to generate objection. " + (err.message || ""));
+               setAppState(AppState.RECORDING_PITCH); // Go back to start
+           }
+        };
+    } catch (err) {
+        setError("Error processing audio.");
+        setAppState(AppState.RECORDING_PITCH);
+    }
+  };
+
+  const handleStartRebuttal = () => {
+    setAppState(AppState.RECORDING_RESPONSE);
+  };
+
+  // Step 2 Complete: Rebuttal Recorded
+  const handleRebuttalComplete = async (rebuttalBlob: Blob, rebuttalDuration: number) => {
+    if (!selectedPrompt || !pitchAudioBlob || !objectionText) return;
+
+    setAppState(AppState.PROCESSING_FINAL);
     const targetSeconds = parseFloat(customDurationMinutes) * 60;
 
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      reader.onloadend = async () => {
-        const base64Audio = (reader.result as string).split(',')[1];
-        
-        try {
-          const analysis = await analyzePitch(base64Audio, selectedPrompt.text, targetSeconds, difficulty);
-          
-          // Calculate XP
-          const multiplier = RECEIVER_PERSONAS[difficulty].multiplier;
-          const xp = Math.round(analysis.scores.overall * multiplier);
+       // Need to read both blobs
+       const pitchReader = new FileReader();
+       const rebuttalReader = new FileReader();
+       
+       const pitchPromise = new Promise<string>((resolve) => {
+          pitchReader.onloadend = () => resolve((pitchReader.result as string).split(',')[1]);
+          pitchReader.readAsDataURL(pitchAudioBlob);
+       });
 
-          const newSession: PitchSession = {
-            id: Date.now().toString(),
-            timestamp: Date.now(),
-            prompt: selectedPrompt,
-            audioUrl: URL.createObjectURL(audioBlob),
-            transcription: analysis.transcription,
-            scores: analysis.scores,
-            feedback: analysis.feedback,
-            duration: duration,
-            fillerWordCount: analysis.fillerWordCount,
-            difficulty: difficulty,
-            xpEarned: xp
-          };
+       const rebuttalPromise = new Promise<string>((resolve) => {
+          rebuttalReader.onloadend = () => resolve((rebuttalReader.result as string).split(',')[1]);
+          rebuttalReader.readAsDataURL(rebuttalBlob);
+       });
 
-          setSessions(prev => [newSession, ...prev]);
-          setCurrentSession(newSession);
-          setAppState(AppState.RESULT);
-        } catch (err: any) {
-          console.error(err);
-          setError("Failed to analyze pitch. " + (err.message || ""));
-          setAppState(AppState.RECORDING);
-        }
-      };
-    } catch (err) {
-      console.error(err);
-      setError("Error processing audio file.");
-      setAppState(AppState.RECORDING);
+       const [pitchBase64, rebuttalBase64] = await Promise.all([pitchPromise, rebuttalPromise]);
+
+       const analysis = await analyzePitch(
+          pitchBase64, 
+          objectionText, 
+          rebuttalBase64, 
+          selectedPrompt.text, 
+          targetSeconds, 
+          difficulty
+       );
+
+       // Calculate XP
+       const multiplier = RECEIVER_PERSONAS[difficulty].multiplier;
+       const xp = Math.round(analysis.scores.overall * multiplier);
+
+       const newSession: PitchSession = {
+         id: Date.now().toString(),
+         timestamp: Date.now(),
+         prompt: selectedPrompt,
+         audioUrl: URL.createObjectURL(pitchAudioBlob), // Just play first one for now or we could merge
+         responseAudioUrl: URL.createObjectURL(rebuttalBlob),
+         objection: objectionText,
+         transcription: analysis.transcription,
+         scores: analysis.scores,
+         feedback: analysis.feedback,
+         duration: pitchDuration + rebuttalDuration,
+         fillerWordCount: analysis.fillerWordCount,
+         difficulty: difficulty,
+         xpEarned: xp
+       };
+
+       setSessions(prev => [newSession, ...prev]);
+       setCurrentSession(newSession);
+       setAppState(AppState.RESULT);
+
+    } catch (err: any) {
+        console.error(err);
+        setError("Analysis failed: " + err.message);
+        setAppState(AppState.RECORDING_RESPONSE); // Retry rebuttal
     }
   };
 
   const handleViewSession = (session: PitchSession) => {
     setCurrentSession(session);
     setAppState(AppState.RESULT);
+  };
+
+  const renderDifficultyIcon = (level: string) => {
+      switch(level) {
+          case 'Ally': return <Heart size={20} className="mb-1 text-pink-500" />;
+          case 'Pragmatist': return <User size={20} className="mb-1 text-blue-500" />;
+          case 'Burned': return <Shield size={20} className="mb-1 text-amber-500" />;
+          case 'Skeptic': return <TrendingUp size={20} className="mb-1 text-indigo-500" />;
+          case 'Visionary': return <Brain size={20} className="mb-1 text-purple-500" />;
+          case 'Challenger': return <ShieldAlert size={20} className="mb-1 text-red-500" />;
+          default: return null;
+      }
   };
 
   const renderContent = () => {
@@ -151,7 +218,7 @@ const App: React.FC = () => {
                 Pitch Perfect. <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600">Win the Room.</span>
               </h1>
               <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-                The AI coach for Ad Execs, Strategists, and Creatives. Practice your campaign pitch, client intro, or internal sell.
+                Practice your campaign pitch with AI personas: The Ally, The Skeptic, The Visionary, and more.
               </p>
             </div>
 
@@ -228,70 +295,78 @@ const App: React.FC = () => {
           </div>
         );
 
-      case AppState.RECORDING:
+      case AppState.RECORDING_PITCH:
         return (
           <div className="max-w-3xl mx-auto w-full pt-8 px-4">
             <button 
               onClick={() => setAppState(AppState.IDLE)} 
               className="flex items-center text-slate-500 hover:text-slate-800 mb-6 transition-colors"
             >
-               <ArrowLeft size={20} className="mr-1"/> Back
+               <ArrowLeft size={20} className="mr-1"/> Cancel
             </button>
             
             <div className="text-center mb-8">
+               <span className="text-xs font-bold text-indigo-500 tracking-wider uppercase mb-2 block">Step 1: The Pitch</span>
                <h2 className="text-2xl font-bold text-slate-800 mb-2 leading-tight">"{selectedPrompt?.text}"</h2>
             </div>
             
             {/* Game Setup Panel */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="mb-8 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                
-               {/* Time Control */}
-               <div>
-                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
-                    <Timer size={14}/> Target Time (Minutes)
-                 </label>
-                 <div className="flex items-center gap-4">
-                    <input 
-                      type="number" 
-                      min="0.1"
-                      step="0.1"
-                      value={customDurationMinutes}
-                      onChange={(e) => setCustomDurationMinutes(e.target.value)}
-                      className="w-24 text-center p-2 border border-slate-200 rounded-lg font-mono text-lg font-bold text-slate-700 focus:border-indigo-500 focus:outline-none"
-                    />
-                    <span className="text-sm text-slate-500">= {Math.round(parseFloat(customDurationMinutes || '0') * 60)} seconds</span>
-                 </div>
-               </div>
-
-               {/* Difficulty Control */}
-               <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
-                    <Shield size={14}/> Receiver Mode
-                  </label>
-                  <div className="flex gap-2">
-                     {(Object.keys(RECEIVER_PERSONAS) as DifficultyLevel[]).map((level) => {
-                        const persona = RECEIVER_PERSONAS[level];
-                        const isSelected = difficulty === level;
-                        const Icon = level === 'Easy' ? Heart : level === 'Medium' ? Shield : ShieldAlert;
-                        
-                        return (
-                          <button
-                            key={level}
-                            onClick={() => setDifficulty(level)}
-                            className={`flex-1 flex flex-col items-center justify-center p-2 rounded-lg border transition-all ${
-                               isSelected 
-                               ? 'bg-indigo-50 border-indigo-500 text-indigo-700' 
-                               : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
-                            }`}
-                          >
-                             <Icon size={20} className={`mb-1 ${isSelected ? 'fill-current' : ''}`}/>
-                             <span className="text-xs font-bold">{level}</span>
-                             <span className="text-[10px] opacity-70">{persona.multiplier}x XP</span>
-                          </button>
-                        );
-                     })}
+               <div className="flex flex-col md:flex-row gap-6">
+                  {/* Time Control */}
+                  <div className="min-w-[150px]">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
+                        <Timer size={14}/> Target Minutes
+                    </label>
+                    <div className="flex items-center gap-4">
+                        <input 
+                        type="number" 
+                        min="0.1"
+                        step="0.1"
+                        value={customDurationMinutes}
+                        onChange={(e) => setCustomDurationMinutes(e.target.value)}
+                        className="w-full text-center p-3 border border-slate-300 rounded-lg font-mono text-xl font-bold text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                        />
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500 mt-2 italic">
+
+                  {/* Difficulty Control */}
+                  <div className="flex-1">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block flex items-center gap-2">
+                        <Shield size={14}/> Receiver Persona (Select One)
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(Object.keys(RECEIVER_PERSONAS) as DifficultyLevel[]).map((level) => {
+                            const persona = RECEIVER_PERSONAS[level];
+                            const isSelected = difficulty === level;
+                            
+                            return (
+                              <button
+                                key={level}
+                                onClick={() => setDifficulty(level)}
+                                className={`flex flex-col items-center justify-center p-2 rounded-lg border transition-all h-20 ${
+                                  isSelected 
+                                  ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500' 
+                                  : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:border-slate-300'
+                                }`}
+                              >
+                                {renderDifficultyIcon(level)}
+                                <span className={`text-[10px] font-bold uppercase text-center leading-tight ${isSelected ? 'text-indigo-700' : 'text-slate-500'}`}>
+                                  {persona.name}
+                                </span>
+                              </button>
+                            );
+                        })}
+                      </div>
+                  </div>
+               </div>
+               
+               <div className="mt-4 pt-4 border-t border-slate-100 text-center">
+                   <p className="text-sm text-slate-600 font-medium">
+                    Current Persona: <span className="font-bold text-indigo-600">{RECEIVER_PERSONAS[difficulty].name}</span>
+                   </p>
+                   <p className="text-xs text-slate-500 mt-1 italic">
                     "{RECEIVER_PERSONAS[difficulty].description}"
                   </p>
                </div>
@@ -304,19 +379,76 @@ const App: React.FC = () => {
             )}
 
             <Recorder 
-              onRecordingComplete={handleRecordingComplete} 
+              onRecordingComplete={handlePitchComplete} 
               targetDuration={parseFloat(customDurationMinutes) * 60}
+              label="Start Recording"
             />
           </div>
         );
 
-      case AppState.PROCESSING:
+      case AppState.GENERATING_OBJECTION:
         return (
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
             <Loader2 size={64} className="text-indigo-500 animate-spin mb-8" />
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">The Judges are Deliberating...</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">{RECEIVER_PERSONAS[difficulty].name} is Thinking...</h2>
             <p className="text-slate-500 text-center max-w-md">
-              Analyzing tone, pace, filler words, and content against the <strong>{difficulty}</strong> persona.
+              Analyzing your pitch for weaknesses.
+            </p>
+          </div>
+        );
+
+      case AppState.VIEWING_OBJECTION:
+      case AppState.RECORDING_RESPONSE:
+        // Combined view for seamless flow
+        return (
+          <div className="max-w-3xl mx-auto w-full pt-12 px-4 flex flex-col items-center">
+             
+             {/* Objection Card - Always Visible during response phase */}
+             <div className="w-full mb-8">
+                <div className="flex items-center gap-3 mb-4 justify-center">
+                    <div className="p-2 bg-indigo-100 rounded-full text-indigo-600">
+                      <MessageSquare size={24} />
+                    </div>
+                    <span className="text-sm font-bold text-indigo-900 uppercase tracking-wider">
+                      {RECEIVER_PERSONAS[difficulty].name} Interrupts:
+                    </span>
+                </div>
+                <div className="bg-white p-8 rounded-3xl shadow-lg border border-indigo-100 relative animate-in fade-in zoom-in duration-300">
+                   {/* Speech bubble tail */}
+                   <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-white border-t border-l border-indigo-100 transform rotate-45"></div>
+                   <p className="text-2xl font-medium text-slate-800 text-center leading-relaxed">
+                     "{objectionText}"
+                   </p>
+                </div>
+             </div>
+
+             {appState === AppState.VIEWING_OBJECTION ? (
+               <button 
+                  onClick={handleStartRebuttal}
+                  className="group relative inline-flex items-center justify-center px-8 py-4 font-bold text-white transition-all duration-200 bg-indigo-600 rounded-full hover:bg-indigo-700 hover:scale-105 shadow-lg"
+               >
+                  <Mic className="w-5 h-5 mr-2" />
+                  Answer Objection
+               </button>
+             ) : (
+               <div className="w-full animate-in slide-in-from-bottom duration-500">
+                  <Recorder 
+                    onRecordingComplete={handleRebuttalComplete}
+                    targetDuration={30} 
+                    label="Record Rebuttal"
+                  />
+               </div>
+             )}
+          </div>
+        );
+
+      case AppState.PROCESSING_FINAL:
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <Loader2 size={64} className="text-indigo-500 animate-spin mb-8" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">Final Deliberation</h2>
+            <p className="text-slate-500 text-center max-w-md">
+              Evaluating your initial pitch and how well you handled the objection.
             </p>
           </div>
         );
