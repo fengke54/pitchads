@@ -22,7 +22,20 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete, targetD
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      
+      // Try to force audio/webm for better compatibility with Gemini API
+      let options: MediaRecorderOptions = { mimeType: 'audio/webm' };
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+         // Fallback for Safari or others
+         options = {}; 
+      }
+      
+      try {
+        mediaRecorderRef.current = new MediaRecorder(stream, options);
+      } catch (e) {
+        mediaRecorderRef.current = new MediaRecorder(stream);
+      }
+      
       chunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (e) => {
@@ -32,7 +45,8 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete, targetD
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' }); 
+        const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: mimeType }); 
         onRecordingComplete(blob, duration);
         stopVisualizer();
         stream.getTracks().forEach(track => track.stop());

@@ -101,7 +101,10 @@ const App: React.FC = () => {
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
-           const base64Audio = (reader.result as string).split(',')[1];
+           // Safely extract base64 data regardless of mime type prefix
+           const base64String = (reader.result as string);
+           const base64Audio = base64String.includes(',') ? base64String.split(',')[1] : base64String;
+           
            try {
                const objection = await generateObjection(base64Audio, selectedPrompt.text, difficulty);
                setObjectionText(objection);
@@ -135,12 +138,18 @@ const App: React.FC = () => {
        const rebuttalReader = new FileReader();
        
        const pitchPromise = new Promise<string>((resolve) => {
-          pitchReader.onloadend = () => resolve((pitchReader.result as string).split(',')[1]);
+          pitchReader.onloadend = () => {
+            const res = pitchReader.result as string;
+            resolve(res.includes(',') ? res.split(',')[1] : res);
+          };
           pitchReader.readAsDataURL(pitchAudioBlob);
        });
 
        const rebuttalPromise = new Promise<string>((resolve) => {
-          rebuttalReader.onloadend = () => resolve((rebuttalReader.result as string).split(',')[1]);
+          rebuttalReader.onloadend = () => {
+            const res = rebuttalReader.result as string;
+            resolve(res.includes(',') ? res.split(',')[1] : res);
+          };
           rebuttalReader.readAsDataURL(rebuttalBlob);
        });
 
@@ -215,7 +224,7 @@ const App: React.FC = () => {
                 Ads & Creative Edition
               </div>
               <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-4">
-                Pitch Perfect. <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600">Win the Room.</span>
+                Pitch Pro. <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600">Win the Room.</span>
               </h1>
               <p className="text-lg text-slate-600 max-w-2xl mx-auto">
                 Practice your campaign pitch with AI personas: The Ally, The Skeptic, The Visionary, and more.

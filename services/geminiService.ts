@@ -11,6 +11,11 @@ interface GeminiResponse {
   fillerWordCount: number;
 }
 
+interface ObjectionResponse {
+  transcription: string;
+  objection: string;
+}
+
 export const generateObjection = async (
   audioBase64: string,
   promptText: string,
@@ -18,28 +23,26 @@ export const generateObjection = async (
 ): Promise<string> => {
   const persona = RECEIVER_PERSONAS[difficulty];
 
+  // 1. Define the Task for the AI
   const systemInstruction = `
     Role: ${persona.context}
     
-    Task: Deeply listen to the user's audio pitch. You must output an objection that references specific content from the speech.
+    Task: Listen to the user's pitch answering: "${promptText}".
     
-    CRITICAL INSTRUCTION:
-    - You MUST reference a specific phrase, claim, or number the user mentioned.
-    - Do NOT give generic advice like "I'm not convinced".
-    - If the user said "we increase sales by 50%", you ask "How exactly do you prove that 50% increase?".
-    - If the user was vague, attack the vagueness specifically by quoting them.
-    - Keep it under 2 sentences. Spoken style.
+    Instructions:
+    1. TRANSCRIPT: Accurately transcribe what the user said.
+    2. ANALYZE: Identify a specific claim, number, or vague promise in their speech.
+    3. OBJECTION: Formulate a short, sharp objection or follow-up question based DIRECTLY on that specific point.
     
-    Persona Specifics:
-    - If "The Ally": Ask a helpful clarifying question to help them shine.
-    - If "The Burned Client": Express doubt based on past failure. Pick on a vague promise they made.
-    - If "The Challenger": Be blunt. If they used buzzwords, call them out.
-    - If "The Data Skeptic": Ask for proof/numbers related to a claim they just made.
+    Fallback:
+    - If the audio is silent or unintelligible, set the objection to: "I couldn't hear you clearly. Please check your mic and try again."
+    
+    Tone: ${persona.name}. Spoken style. Under 2 sentences.
   `;
 
-  try {
+  const generateWithModel = async (modelName: string): Promise<string> => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: modelName,
       contents: {
         parts: [
           {
@@ -49,20 +52,49 @@ export const generateObjection = async (
             },
           },
           {
-            text: `The user was answering this prompt: "${promptText}". Listen to their response and give me your objection.`,
+            text: `Listen to this pitch about "${promptText}" and generate an objection.`,
           },
         ],
       },
       config: {
         systemInstruction: systemInstruction,
-        maxOutputTokens: 150,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            transcription: { type: Type.STRING },
+            objection: { type: Type.STRING },
+          },
+          required: ["transcription", "objection"],
+        },
       },
     });
 
-    return response.text || "I couldn't hear the details clearly. Could you give me a specific example of what you mean?";
-  } catch (e) {
-    console.error("Objection generation error", e);
-    return "I'm a bit skeptical. Can you break that down with more specific numbers?";
+    const text = response.text;
+    if (!text) throw new Error("Empty response from model");
+
+    const result = JSON.parse(text) as ObjectionResponse;
+    
+    // If transcription is too short, it likely didn't hear anything
+    if (result.transcription.length < 5) {
+      return "I couldn't hear you clearly. Could you speak up?";
+    }
+
+    return result.objection;
+  };
+
+  try {
+    // Primary: Try Gemini 3 Pro
+    return await generateWithModel("gemini-3-pro-preview");
+  } catch (error) {
+    console.warn("Gemini 3 Pro failed for objection, failing over to Flash 2.5", error);
+    try {
+      // Fallback: Try Gemini 2.5 Flash (Very stable for audio)
+      return await generateWithModel("gemini-2.5-flash");
+    } catch (fallbackError) {
+      console.error("All models failed", fallbackError);
+      return "I'm not sure I caught that. Can you clarify your main value proposition?";
+    }
   }
 };
 
@@ -182,36 +214,41 @@ export const generatePracticePrompts = async (
     4. Categories must be one of: 'General', 'Sales', 'Interview', 'Startup'.
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview", 
-    contents: {
-      parts: [{ text: "Generate 10 new pitch prompts." }],
-    },
-    config: {
-      systemInstruction: systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            text: { type: Type.STRING },
-            category: { type: Type.STRING },
-            durationTarget: { type: Type.INTEGER },
-          },
-          required: ["text", "category", "durationTarget"]
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-preview", 
+      contents: {
+        parts: [{ text: "Generate 10 new pitch prompts." }],
+      },
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              text: { type: Type.STRING },
+              category: { type: Type.STRING },
+              durationTarget: { type: Type.INTEGER },
+            },
+            required: ["text", "category", "durationTarget"]
+          }
         }
       }
-    }
-  });
+    });
 
-  const text = response.text;
-  if (!text) return [];
+    const text = response.text;
+    if (!text) return [];
 
-  const raw = JSON.parse(text) as any[];
-  return raw.map(p => ({
-    ...p,
-    id: `gen-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-  }));
+    const raw = JSON.parse(text) as any[];
+    return raw.map((p: any) => ({
+      ...p,
+      id: `gen-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    }));
+  } catch (e) {
+    console.error("Error generating prompts", e);
+    return [];
+  }
 };
